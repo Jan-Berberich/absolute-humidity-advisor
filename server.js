@@ -2,7 +2,7 @@ const express = require("express");
 const axios = require("axios");
 const crypto = require("crypto");
 const cron = require("node-cron");
-const fs = require("fs"); // Built-in file system module
+const fs = require("fs"); 
 const path = require("path");
 require("dotenv").config();
 
@@ -12,13 +12,17 @@ app.use(express.static("public"));
 
 const { TUYA_CLIENT_ID, TUYA_SECRET, TUYA_ENDPOINT, PORT, NTFY_TOPIC } = process.env;
 
-// Path to the local JSON storage file
 const DATA_FILE = path.join(__dirname, "devices.json");
+const HISTORY_FILE = path.join(__dirname, "history.csv"); // New local CSV storage
 
-// Global Server-Side Storage for Tracking Devices
 let trackedDevices = []; 
 
-// Helper function to load devices from the JSON file on startup
+// Initialize CSV with headers if it doesn't exist
+if (!fs.existsSync(HISTORY_FILE)) {
+    fs.writeFileSync(HISTORY_FILE, "timestamp,deviceId,temperature,humidity,absoluteHumidity\n", "utf8");
+    console.log("ℹ️ Created new history.csv file for data logging.");
+}
+
 function loadDevicesFromFile() {
     try {
         if (fs.existsSync(DATA_FILE)) {
@@ -35,7 +39,6 @@ function loadDevicesFromFile() {
     }
 }
 
-// Helper function to save devices to the JSON file whenever changes happen
 function saveDevicesToFile() {
     try {
         fs.writeFileSync(DATA_FILE, JSON.stringify(trackedDevices, null, 2), "utf8");
@@ -45,19 +48,22 @@ function saveDevicesToFile() {
     }
 }
 
-// Trigger initial configuration load on boot
+// Write a single data point to the CSV
+function logDataToCSV(deviceId, data) {
+    if (!data || data.temperature === "N/A" || data.temperature === null) return;
+    const timestamp = new Date().toISOString();
+    const csvLine = `${timestamp},${deviceId},${data.temperature},${data.humidity},${data.absoluteHumidity}\n`;
+    try {
+        fs.appendFileSync(HISTORY_FILE, csvLine, "utf8");
+    } catch (e) {
+        console.error(`❌ Error writing to history.csv for device ${deviceId}:`, e.message);
+    }
+}
+
 loadDevicesFromFile();
 
-// Cache for device data to serve the frontend quickly
 let sensorDataCache = {};
-
-// Simple Token Cache to protect Tuya rate limits
-let tokenCache = {
-    token: null,
-    expiresAt: 0
-};
-
-// Track state changes to prevent notification spamming
+let tokenCache = { token: null, expiresAt: 0 };
 let lastNotificationStates = {}; 
 
 function calculateSign(clientId, secret, timestamp, accessToken, stringToSign) {
@@ -103,16 +109,14 @@ async function makeTuyaRequest(method, path, useToken = true) {
     return response.data.result;
 }
 
-// Physics Math: Calculate Absolute Humidity (g/m³)
 function getAbsoluteHumidity(temp, rh) {
-    if (temp === "N/A" || rh === "N/A" || temp === null || rh === null) return nulvgl;
+    if (temp === "N/A" || rh === "N/A" || temp === null || rh === null) return null;
     const es = 6.112 * Math.exp((17.67 * temp) / (temp + 243.5));
     const e = es * (rh / 100);
     const ah = (e * 216.7) / (temp + 273.15);
     return parseFloat(ah.toFixed(1));
 }
 
-// Helper to fetch data and compute absolute humidity for a single device
 async function processDeviceData(deviceId) {
     const statusResult = await makeTuyaRequest("GET", `/v1.0/devices/${deviceId}/status`);
     let temperature = "N/A";
@@ -131,51 +135,41 @@ async function processDeviceData(deviceId) {
     return { temperature, humidity, absoluteHumidity, deviceId };
 }
 
-// Send alert to ntfy.sh mobile app
 async function sendPushNotification(title, message) {
-    if (!NTFY_TOPIC) {
-        console.log("⚠️ NTFY_TOPIC not configured in .env. Skipping push notification.");
-        return;
-    }
+    if (!NTFY_TOPIC) return;
     try {
-        await axios.post(`https://ntfy.sh/${NTFY_TOPIC}`, message, {
-            headers: { "Title": title }
-        });
-        console.log(`🚀 Notification sent via ntfy: [${title}] ${message}`);
+        await axios.post(`https://ntfy.sh/${NTFY_TOPIC}`, message, { headers: { "Title": title } });
     } catch (error) {
         console.error("❌ Failed to send ntfy notification:", error.message);
     }
 }
 
-// Background Evaluation Worker (Runs every 10 minutes)
 async function evaluateHumidityAlerts() {
-    console.log("🔄 Background check starting: evaluating humidity differences...");
     try {
         const outdoorDev = trackedDevices.find(d => d.type === "outdoor");
-        if (!outdoorDev) return;
+        let outdoorData = null;
 
-        // Refresh outdoor metrics
-        const outdoorData = await processDeviceData(outdoorDev.id);
-        sensorDataCache[outdoorDev.id] = outdoorData;
+        if (outdoorDev) {
+            outdoorData = await processDeviceData(outdoorDev.id);
+            sensorDataCache[outdoorDev.id] = outdoorData;
+            logDataToCSV(outdoorDev.id, outdoorData); // Log outdoor data to CSV
+        }
 
-        if (!outdoorData.absoluteHumidity) return;
-
-        // Process all indoor sensors
         const indoorDevices = trackedDevices.filter(d => d.type === "indoor");
         for (const dev of indoorDevices) {
             const indoorData = await processDeviceData(dev.id);
             sensorDataCache[dev.id] = indoorData;
+            logDataToCSV(dev.id, indoorData); // Log indoor data to CSV
 
-            if (!indoorData.absoluteHumidity) continue;
+            // Only trigger alert logic if we have both absolute humidities available
+            if (!indoorData.absoluteHumidity || !outdoorData || !outdoorData.absoluteHumidity) continue;
 
             const diff = (indoorData.absoluteHumidity - outdoorData.absoluteHumidity).toFixed(1);
             const shouldOpen = indoorData.absoluteHumidity > outdoorData.absoluteHumidity;
             const targetState = shouldOpen ? "OPEN" : "CLOSE";
 
-            // Check if the recommendation state shifted since last broadcast
             if (lastNotificationStates[dev.id] !== targetState) {
                 lastNotificationStates[dev.id] = targetState;
-                
                 const title = `Absolute Humidity Advisor: ${dev.name}`;
                 const body = shouldOpen 
                     ? `OPEN window! ${Math.abs(diff)} g/m³ less moisture outside.`
@@ -189,41 +183,35 @@ async function evaluateHumidityAlerts() {
     }
 }
 
-// Run analysis loop every 10 minutes
+// Background Evaluation Worker & Logger (Runs every 10 minutes)
 cron.schedule("*/10 * * * *", evaluateHumidityAlerts);
 
-// --- API ENDPOINTS FOR FRONTEND ---
+// --- API ENDPOINTS ---
 
-// Get list of tracked devices
 app.get("/api/devices", (req, res) => {
     res.json({ success: true, devices: trackedDevices });
 });
 
-// Add a device
 app.post("/api/devices", (req, res) => {
     const { id, name, type } = req.body;
     if (!id || !name || !type) return res.status(400).json({ success: false, error: "Missing fields" });
-    
     if (type === "outdoor" && trackedDevices.some(d => d.type === "outdoor")) {
         return res.status(400).json({ success: false, error: "An outdoor device already exists" });
     }
-
     trackedDevices.push({ id, name, type });
-    saveDevicesToFile(); // Persist changes to disk
+    saveDevicesToFile(); 
     res.json({ success: true, devices: trackedDevices });
 });
 
-// Remove a device
 app.delete("/api/devices/:id", (req, res) => {
     const { id } = req.params;
     trackedDevices = trackedDevices.filter(d => d.id !== id);
     delete sensorDataCache[id];
     delete lastNotificationStates[id];
-    saveDevicesToFile(); // Persist changes to disk
+    saveDevicesToFile(); 
     res.json({ success: true, devices: trackedDevices });
 });
 
-// Fetch current metrics dashboard data
 app.get("/api/dashboard", async (req, res) => {
     try {
         for (const dev of trackedDevices) {
@@ -239,13 +227,89 @@ app.get("/api/dashboard", async (req, res) => {
     }
 });
 
-// Legacy single route compat layer
-app.get("/api/sensor/:deviceId", async (req, res) => {
+// NEW: Real Historical Data Endpoint (Parses and aggregates CSV)
+app.get("/api/history/:id", (req, res) => {
+    const { id } = req.params;
+    const { metric, window } = req.query; 
+
+    if (!fs.existsSync(HISTORY_FILE)) {
+        return res.json({ success: true, data: { labels: [], points: [] } });
+    }
+
+    const now = new Date();
+    let cutoffDate = new Date();
+    let groupFormat = 'hour'; // default grouping
+
+    // Set cutoff limits and grouping strategy to prevent crashing the frontend chart
+    if (window === '1w') {
+        cutoffDate.setDate(now.getDate() - 7);
+        groupFormat = 'hour'; // Average per hour
+    } else if (window === '1mo') {
+        cutoffDate.setMonth(now.getMonth() - 1);
+        groupFormat = 'day'; // Average per day
+    } else if (window === '1y') {
+        cutoffDate.setFullYear(now.getFullYear() - 1);
+        groupFormat = 'month'; // Average per month
+    }
+
     try {
-        const data = await processDeviceData(req.params.deviceId);
-        res.json({ success: true, ...data });
+        const fileContent = fs.readFileSync(HISTORY_FILE, "utf8");
+        const lines = fileContent.trim().split("\n");
+        let groupedData = {};
+
+        // Skip the header row (i = 1)
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i]) continue;
+            
+            const [ts, devId, temp, hum, absHum] = lines[i].split(",");
+            if (devId !== id) continue; // Only process the requested device
+
+            const dateObj = new Date(ts);
+            if (dateObj < cutoffDate) continue; // Ignore old data outside the requested window
+
+            // Select requested metric
+            let val = 0;
+            if (metric === 'temperature') val = parseFloat(temp);
+            else if (metric === 'humidity') val = parseFloat(hum);
+            else if (metric === 'absoluteHumidity') val = parseFloat(absHum);
+
+            if (isNaN(val)) continue;
+
+            // Grouping logic based on time window
+            let groupKey = "";
+            let label = "";
+            
+            if (groupFormat === 'hour') {
+                groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}-${dateObj.getHours()}`;
+                label = `${dateObj.getDate()}/${dateObj.getMonth()+1} ${dateObj.getHours()}:00`;
+            } else if (groupFormat === 'day') {
+                groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}`;
+                label = `${dateObj.getDate()}/${dateObj.getMonth()+1}`;
+            } else { // month
+                groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}`;
+                label = dateObj.toLocaleString('default', { month: 'short', year: '2-digit' });
+            }
+
+            // Accumulate for averaging
+            if (!groupedData[groupKey]) {
+                groupedData[groupKey] = { label, sum: 0, count: 0, time: dateObj.getTime() };
+            }
+            groupedData[groupKey].sum += val;
+            groupedData[groupKey].count += 1;
+        }
+
+        // Sort chronologically
+        const sortedGroups = Object.values(groupedData).sort((a, b) => a.time - b.time);
+
+        // Extract final labels and average values
+        const labels = sortedGroups.map(g => g.label);
+        const points = sortedGroups.map(g => parseFloat((g.sum / g.count).toFixed(1)));
+
+        res.json({ success: true, data: { labels, points } });
+
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error("❌ Error processing history:", error.message);
+        res.status(500).json({ success: false, error: "Failed to read history" });
     }
 });
 

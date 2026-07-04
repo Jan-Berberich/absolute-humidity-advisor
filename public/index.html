@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Absolute Humidity Advisor</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen p-4 md:p-8">
 
@@ -19,7 +20,6 @@
         </header>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            
             <div class="bg-slate-800 rounded-2xl border border-slate-700 p-6 h-fit order-2 lg:order-1">
                 <h2 class="text-lg font-bold text-slate-200 mb-4">Add T & H Sensor</h2>
                 <div class="space-y-4">
@@ -50,8 +50,10 @@
             </div>
 
             <div class="lg:col-span-2 space-y-6 order-1 lg:order-2">
-                <div id="outdoorCard" class="bg-slate-800/50 border-2 border-dashed border-slate-700 rounded-2xl p-6 text-center text-slate-400">
-                    Set up an Outdoor Sensor to begin calculations.
+                <div id="outdoorCardContainer">
+                    <div id="outdoorCard" class="bg-slate-800/50 border-2 border-dashed border-slate-700 rounded-2xl p-6 text-center text-slate-400">
+                        Set up an Outdoor Sensor to begin calculations.
+                    </div>
                 </div>
 
                 <div>
@@ -59,15 +61,119 @@
                     <div id="roomsGrid" class="grid grid-cols-1 gap-4"></div>
                 </div>
             </div>
-
         </div>
     </div>
 
     <script>
         let devices = [];
         let sensorDataCache = {};
+        
+        let plotStates = {}; 
 
-        // Fetch Tracked Device Configuration Registry from Backend
+        async function fetchPlotData(id, metric, window) {
+            const res = await fetch(`/api/history/${id}?metric=${metric}&window=${window}`);
+            return await res.json();
+        }
+
+        function closePlot(id) {
+            const contentLayer = document.getElementById(`content-${id}`);
+            const plotLayer = document.getElementById(`plot-layer-${id}`);
+            if (contentLayer && plotLayer) {
+                contentLayer.classList.remove('opacity-10');
+                plotLayer.classList.replace('opacity-100', 'opacity-0');
+                plotLayer.classList.replace('pointer-events-auto', 'pointer-events-none');
+            }
+        }
+
+        async function togglePlot(id, metric) {
+            const state = plotStates[id];
+            const contentLayer = document.getElementById(`content-${id}`);
+            const plotLayer = document.getElementById(`plot-layer-${id}`);
+
+            if (state && state.metric === metric && plotLayer.classList.contains('opacity-100')) {
+                closePlot(id);
+                return;
+            }
+
+            if (!state) {
+                plotStates[id] = { metric, window: '1w', chartInstance: null };
+            } else {
+                plotStates[id].metric = metric;
+            }
+
+            contentLayer.classList.add('opacity-10');
+            plotLayer.classList.replace('opacity-0', 'opacity-100');
+            plotLayer.classList.replace('pointer-events-none', 'pointer-events-auto');
+
+            await renderChart(id);
+        }
+
+        async function cycleTimeframe(id, event) {
+            if (event) event.stopPropagation(); 
+            
+            const state = plotStates[id];
+            if (!state) return;
+
+            if (state.window === '1w') state.window = '1mo';
+            else if (state.window === '1mo') state.window = '1y';
+            else state.window = '1w';
+
+            document.getElementById(`plot-label-${id}`).innerText = state.window.toUpperCase();
+            await renderChart(id);
+        }
+
+        async function renderChart(id) {
+            const state = plotStates[id];
+            const canvas = document.getElementById(`canvas-${id}`);
+            const dataResult = await fetchPlotData(id, state.metric, state.window);
+            const { labels, points } = dataResult.data;
+
+            if (state.chartInstance) {
+                state.chartInstance.destroy();
+            }
+
+            let color = '#22d3ee'; 
+            let title = 'Absolute Humidity (g/m³)';
+            if (state.metric === 'temperature') { color = '#f87171'; title = 'Temperature (°C)'; }
+            if (state.metric === 'humidity') { color = '#a78bfa'; title = 'Relative Humidity (%)'; }
+
+            document.getElementById(`plot-title-${id}`).innerText = title;
+
+            state.chartInstance = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: points,
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#0f172a',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { 
+                            ticks: { color: '#64748b', font: {size: 10} }, 
+                            grid: { display: false },
+                            border: { display: false } // Hides the solid X-axis spine
+                        },
+                        y: { 
+                            ticks: { color: '#64748b', font: {size: 10} }, 
+                            grid: { color: '#334155', borderDash: [5, 5] },
+                            border: { display: false } // Hides the solid Y-axis spine causing the artifact
+                        }
+                    }
+                }
+            });
+        }
+
         async function fetchDevices() {
             try {
                 const res = await fetch('/api/devices');
@@ -139,31 +245,55 @@
             } catch (e) { console.error("Error gathering active sync metrics telemetry", e); }
         }
 
+        function getPlotLayerHTML(id) {
+            return `
+                <div id="plot-layer-${id}" class="absolute inset-0 z-20 opacity-0 pointer-events-none transition-opacity duration-300 bg-slate-900/60 backdrop-blur-[2px] flex flex-col p-4 cursor-pointer" onclick="closePlot('${id}')">
+                    <div class="flex justify-between items-center mb-2">
+                        <span id="plot-title-${id}" class="text-xs font-bold text-slate-100 drop-shadow-md uppercase tracking-wider"></span>
+                        <button id="plot-label-${id}" class="text-[10px] font-black text-cyan-400 bg-cyan-950/80 hover:bg-cyan-800 px-3 py-1.5 rounded border border-cyan-700 transition-colors z-30 cursor-pointer shadow-lg" onclick="cycleTimeframe('${id}', event)">1W</button>
+                    </div>
+                    <div class="relative w-full flex-1 min-h-0">
+                        <canvas id="canvas-${id}"></canvas>
+                    </div>
+                </div>
+            `;
+        }
+
         function updateDashboardDisplay() {
             const outdoorDev = devices.find(d => d.type === 'outdoor');
             const outdoorData = outdoorDev ? sensorDataCache[outdoorDev.id] : null;
+            const outdoorContainer = document.getElementById('outdoorCardContainer');
 
-            const outdoorCard = document.getElementById('outdoorCard');
             if (outdoorData && outdoorData.absoluteHumidity !== null) {
-                outdoorCard.className = "bg-gradient-to-br from-slate-800 to-slate-900 border border-cyan-700 rounded-2xl p-6 shadow-md";
-                outdoorCard.innerHTML = `
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <span class="bg-cyan-500/10 text-cyan-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider">Reference Point</span>
-                            <h2 class="text-2xl font-bold mt-1">${outdoorDev.name} (Outdoor)</h2>
+                outdoorContainer.innerHTML = `
+                <div class="relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900 border border-cyan-700 rounded-2xl shadow-md min-h-[180px]">
+                    <div id="content-${outdoorDev.id}" class="transition-opacity duration-500 z-10 relative p-6 h-full flex flex-col justify-between">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <span class="bg-cyan-500/10 text-cyan-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider">Reference Point</span>
+                                <h2 class="text-2xl font-bold mt-2">${outdoorDev.name} (Outdoor)</h2>
+                            </div>
+                            <div class="text-right cursor-pointer hover:bg-slate-700/50 p-2 -m-2 rounded-xl transition shrink-0" onclick="togglePlot('${outdoorDev.id}', 'absoluteHumidity')">
+                                <p class="text-xs text-slate-400 uppercase font-bold tracking-wider mb-1">Absolute Humidity</p>
+                                <p class="text-3xl font-black text-cyan-400">${outdoorData.absoluteHumidity} <span class="text-lg font-normal text-cyan-400">g/m³</span></p>
+                            </div>
                         </div>
-                        <div class="text-right">
-                            <p class="text-xs text-slate-400 uppercase font-bold tracking-wider">Absolute Humidity</p>
-                            <p class="text-3xl font-black text-cyan-400">${outdoorData.absoluteHumidity} <span class="text-lg font-normal text-cyan-400">g/m³</span></p>
+                        <div class="grid grid-cols-2 gap-4 mt-6 pt-4 border-t border-slate-800 text-center text-sm">
+                            <div class="cursor-pointer hover:bg-slate-800 py-2 rounded-lg transition" onclick="togglePlot('${outdoorDev.id}', 'temperature')">
+                                <span class="text-slate-400">Temperature:</span> <strong class="text-slate-200">${outdoorData.temperature} °C</strong>
+                            </div>
+                            <div class="cursor-pointer hover:bg-slate-800 py-2 rounded-lg transition" onclick="togglePlot('${outdoorDev.id}', 'humidity')">
+                                <span class="text-slate-400">Relative Humidity:</span> <strong class="text-slate-200">${outdoorData.humidity} %</strong>
+                            </div>
                         </div>
                     </div>
-                    <div class="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-800 text-center text-sm">
-                        <div><span class="text-slate-400">Temperature:</span> <strong class="text-slate-200">${outdoorData.temperature} °C</strong></div>
-                        <div><span class="text-slate-400">Relative Humidity:</span> <strong class="text-slate-200">${outdoorData.humidity} %</strong></div>
-                    </div>`;
+                    ${getPlotLayerHTML(outdoorDev.id)}
+                </div>`;
             } else {
-                outdoorCard.className = "bg-slate-800/50 border-2 border-dashed border-slate-700 rounded-2xl p-6 text-center text-slate-400";
-                outdoorCard.innerHTML = `Set up an Outdoor Sensor to begin comparisons.`;
+                outdoorContainer.innerHTML = `
+                <div class="bg-slate-800/50 border-2 border-dashed border-slate-700 rounded-2xl p-6 text-center text-slate-400">
+                    Set up an Outdoor Sensor to begin comparisons.
+                </div>`;
             }
 
             const roomsGrid = document.getElementById('roomsGrid');
@@ -176,69 +306,72 @@
 
             roomsGrid.innerHTML = indoorDevices.map(dev => {
                 const data = sensorDataCache[dev.id];
-                if (!data) {
-                    return `<div class="bg-slate-800 p-6 rounded-xl border border-slate-700 text-slate-500 text-sm">Loading data for ${dev.name}...</div>`;
-                }
+                if (!data) return `<div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 text-slate-500 text-sm">Loading data for ${dev.name}...</div>`;
 
-                let recommendationHtml = '';
-                let cardColorClasses = '';
-                let absTextColorClass = '';
-                let absBorderColorClass = "";
+                let badgeHtml = '';
+                let cardColorClasses = 'bg-gradient-to-br from-slate-800 to-slate-900 border-slate-700';
+                let absTextColorClass = 'text-cyan-400';
 
                 if (!outdoorData || outdoorData.absoluteHumidity === null) {
-                    recommendationHtml = `<div class="mt-4 md:mt-0 md:w-64 bg-slate-900 p-2 rounded text-center flex flex-col justify-center text-xs text-slate-400">Awaiting Outdoor Data</div>`;
+                    badgeHtml = `<span class="bg-slate-500/10 text-slate-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider">Awaiting Outdoor Data</span>`;
                 } else {
                     const dynamicDiff = (data.absoluteHumidity - outdoorData.absoluteHumidity).toFixed(1);
                     const isHigher = data.absoluteHumidity > outdoorData.absoluteHumidity;
 
                     if (isHigher) {
-                        cardColorClasses = 'border-rose-500/40 shadow-lg shadow-rose-950/20';
+                        cardColorClasses = 'bg-gradient-to-br from-slate-800 to-slate-900 border-rose-500/40 shadow-lg shadow-rose-950/20';
                         absTextColorClass = 'text-rose-400';
-                        absBorderColorClass = 'border-rose-900/40';
-                        
-                        recommendationHtml = `
-                            <div class="mt-4 md:mt-0 md:w-64 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl p-3 text-center flex flex-col justify-center">
-                                <p class="text-lg font-black mt-0.5">OPEN WINDOW</p>
-                                <p class="text-xs opacity-80 mt-0.5">${Math.abs(dynamicDiff)} g/m³ less moisture outside</p>
+                        badgeHtml = `
+                            <div class="flex items-center flex-wrap gap-2">
+                                <span class="bg-rose-500/20 text-rose-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider border border-rose-500/20">Open Window</span>
+                                <span class="text-[11px] text-slate-400 font-medium">${Math.abs(dynamicDiff)} g/m³ less moisture outside</span>
                             </div>`;
                     } else {
-                        cardColorClasses = 'border-emerald-500/40 shadow-lg shadow-emerald-950/20';
+                        cardColorClasses = 'bg-gradient-to-br from-slate-800 to-slate-900 border-emerald-500/40 shadow-lg shadow-emerald-950/20';
                         absTextColorClass = 'text-emerald-400';
-                        absBorderColorClass = 'border-emerald-900/40';
-
-                        recommendationHtml = `
-                            <div class="mt-4 md:mt-0 md:w-64 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl p-3 text-center flex flex-col justify-center">
-                                <p class="text-lg font-black mt-0.5">CLOSE WINDOW</p>
-                                <p class="text-xs opacity-80 mt-0.5">${Math.abs(dynamicDiff)} g/m³ more moisture outside</p>
+                        badgeHtml = `
+                            <div class="flex items-center flex-wrap gap-2">
+                                <span class="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider border border-emerald-500/20">Close Window</span>
+                                <span class="text-[11px] text-slate-400 font-medium">${Math.abs(dynamicDiff)} g/m³ more moisture outside</span>
                             </div>`;
                     }
                 }
 
                 return `
-                    <div class="bg-slate-800 rounded-xl border p-5 flex flex-col md:flex-row md:justify-between gap-4 transition-all duration-300 ${cardColorClasses}">
-                        <div class="flex-1">
-                            <h3 class="text-lg font-bold text-slate-100">${dev.name}</h3>
-                            <div class="grid grid-cols-3 gap-2 mt-3 text-center">
-                                <div class="bg-slate-900/50 p-2 rounded border border-slate-800">
-                                    <span class="text-[10px] text-slate-400 block uppercase font-bold">Temp.</span>
-                                    <span class="text-sm font-bold text-slate-200">${data.temperature} °C</span>
+                    <div class="relative overflow-hidden border rounded-2xl transition-all duration-300 min-h-[180px] ${cardColorClasses}">
+                        <div id="content-${dev.id}" class="transition-opacity duration-500 z-10 relative p-6 h-full flex flex-col justify-between">
+                            <div class="flex justify-between items-start gap-4">
+                                <div class="flex-1">
+                                    ${badgeHtml}
+                                    <h2 class="text-2xl font-bold mt-2">${dev.name}</h2>
                                 </div>
-                                <div class="bg-slate-900/50 p-2 rounded border border-slate-800">
-                                    <span class="text-[10px] text-slate-400 block uppercase font-bold">Rel H.</span>
-                                    <span class="text-sm font-bold text-slate-200">${data.humidity} %</span>
+                                <div class="text-right cursor-pointer hover:bg-slate-700/50 p-2 -m-2 rounded-xl transition shrink-0" onclick="togglePlot('${dev.id}', 'absoluteHumidity')">
+                                    <p class="text-xs text-slate-400 uppercase font-bold tracking-wider mb-1">Absolute Humidity</p>
+                                    <p class="text-3xl font-black ${absTextColorClass}">${data.absoluteHumidity ? data.absoluteHumidity : 'N/A'} <span class="text-lg font-normal ${absTextColorClass}">g/m³</span></p>
                                 </div>
-                                <div class="bg-slate-900/50 p-2 rounded border ${absBorderColorClass}">
-                                    <span class="text-[10px] text-slate-400 block uppercase font-bold">Abs H.</span>
-                                    <span class="text-sm font-black ${absTextColorClass}">${data.absoluteHumidity ? data.absoluteHumidity : 'N/A'} g/m³</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4 mt-6 pt-4 border-t border-slate-800 text-center text-sm">
+                                <div class="cursor-pointer hover:bg-slate-800 py-2 rounded-lg transition" onclick="togglePlot('${dev.id}', 'temperature')">
+                                    <span class="text-slate-400">Temperature:</span> <strong class="text-slate-200">${data.temperature} °C</strong>
+                                </div>
+                                <div class="cursor-pointer hover:bg-slate-800 py-2 rounded-lg transition" onclick="togglePlot('${dev.id}', 'humidity')">
+                                    <span class="text-slate-400">Relative Humidity:</span> <strong class="text-slate-200">${data.humidity} %</strong>
                                 </div>
                             </div>
                         </div>
-                        ${recommendationHtml}
+                        ${getPlotLayerHTML(dev.id)}
                     </div>`;
             }).join('');
+            
+            Object.keys(plotStates).forEach(id => {
+                const state = plotStates[id];
+                const plotLayer = document.getElementById(`plot-layer-${id}`);
+                if (plotLayer && plotLayer.classList.contains('opacity-100')) {
+                    renderChart(id);
+                }
+            });
         }
 
-        // Initialization Pipeline
         async function init() {
             await fetchDevices();
             await refreshAllData();
