@@ -137,7 +137,7 @@ async function processDeviceData(deviceId) {
 
 async function sendPushNotification(title, message) {
     if (!NTFY_TOPIC) return;
-    const headers = { "Title": title, "Click": `${NTFY_IP}:${PORT}` };
+    const headers = { "Title": title, "Click": `http://${NTFY_IP}:${PORT}` };
     try {
         await axios.post(`https://ntfy.sh/${NTFY_TOPIC}`, message, { headers });
     } catch (error) {
