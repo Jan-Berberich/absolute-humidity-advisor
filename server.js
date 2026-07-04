@@ -10,7 +10,7 @@ const app = express();
 app.use(express.json());
 app.use(express.static("public"));
 
-const { TUYA_CLIENT_ID, TUYA_SECRET, TUYA_ENDPOINT, PORT, NTFY_TOPIC } = process.env;
+const { TUYA_CLIENT_ID, TUYA_SECRET, TUYA_ENDPOINT, PORT, NTFY_TOPIC, NTFY_IP } = process.env;
 
 const DATA_FILE = path.join(__dirname, "devices.json");
 const HISTORY_FILE = path.join(__dirname, "history.csv"); // New local CSV storage
@@ -137,8 +137,9 @@ async function processDeviceData(deviceId) {
 
 async function sendPushNotification(title, message) {
     if (!NTFY_TOPIC) return;
+    const headers = { "Title": title, "Click": `${NTFY_IP}:${PORT}` };
     try {
-        await axios.post(`https://ntfy.sh/${NTFY_TOPIC}`, message, { headers: { "Title": title } });
+        await axios.post(`https://ntfy.sh/${NTFY_TOPIC}`, message, { headers });
     } catch (error) {
         console.error("❌ Failed to send ntfy notification:", error.message);
     }
