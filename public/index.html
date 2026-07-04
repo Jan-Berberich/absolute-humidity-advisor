@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Absolute Humidity Advisor</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-5xl mx-auto">
+        <header class="mb-8 border-b border-slate-800 pb-4 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-black text-cyan-400">Absolute Humidity Advisor</h1>
+            </div>
+            <button onclick="refreshAllData()" class="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-semibold transition border border-slate-700">
+                Refresh
+            </button>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <div class="bg-slate-800 rounded-2xl border border-slate-700 p-6 h-fit order-2 lg:order-1">
+                <h2 class="text-lg font-bold text-slate-200 mb-4">Add T & H Sensor</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Device ID</label>
+                        <input id="devId" type="text" placeholder="e.g. bf6b78..." class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-cyan-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Location Name</label>
+                        <input id="devName" type="text" placeholder="e.g. Living Room, Outdoor" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-cyan-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Type</label>
+                        <select id="devType" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-cyan-400">
+                            <option value="indoor">🏠 Indoor Sensor</option>
+                            <option value="outdoor">🌳 Outdoor Sensor</option>
+                        </select>
+                    </div>
+                    <button onclick="addDevice()" class="w-full bg-cyan-500 hover:bg-cyan-600 text-slate-900 font-bold py-2 rounded-lg transition text-sm">
+                        Add Device
+                    </button>
+                </div>
+
+                <div class="mt-8">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tracked Sensors</h3>
+                    <ul id="deviceList" class="space-y-2 text-sm"></ul>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2 space-y-6 order-1 lg:order-2">
+                <div id="outdoorCard" class="bg-slate-800/50 border-2 border-dashed border-slate-700 rounded-2xl p-6 text-center text-slate-400">
+                    Set up an Outdoor Sensor to begin calculations.
+                </div>
+
+                <div>
+                    <h2 class="text-xl font-bold mb-4 flex items-center gap-2">Room Analysis</h2>
+                    <div id="roomsGrid" class="grid grid-cols-1 gap-4"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        let devices = [];
+        let sensorDataCache = {};
+
+        // Fetch Tracked Device Configuration Registry from Backend
+        async function fetchDevices() {
+            try {
+                const res = await fetch('/api/devices');
+                const data = await res.json();
+                if (data.success) {
+                    devices = data.devices;
+                    renderDeviceList();
+                }
+            } catch (e) { console.error("Error fetching device registration matrix", e); }
+        }
+
+        async function addDevice() {
+            const id = document.getElementById('devId').value.trim();
+            const name = document.getElementById('devName').value.trim();
+            const type = document.getElementById('devType').value;
+
+            if (!id || !name) return alert('Please fill in all fields');
+            
+            try {
+                const response = await fetch('/api/devices', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, name, type })
+                });
+                const data = await response.json();
+                if (!data.success) return alert(data.error);
+                
+                document.getElementById('devId').value = '';
+                document.getElementById('devName').value = '';
+                devices = data.devices;
+                renderDeviceList();
+                refreshAllData();
+            } catch (e) {
+                alert('Failed to register device to backend pipeline.');
+            }
+        }
+
+        async function removeDevice(id) {
+            try {
+                const response = await fetch(`/api/devices/${id}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (data.success) {
+                    devices = data.devices;
+                    delete sensorDataCache[id];
+                    renderDeviceList();
+                    updateDashboardDisplay();
+                }
+            } catch (e) { console.error("Could not remove device link safely", e); }
+        }
+
+        function renderDeviceList() {
+            const list = document.getElementById('deviceList');
+            list.innerHTML = devices.map((d) => `
+                <li class="flex justify-between items-center bg-slate-900 p-2 rounded border border-slate-800">
+                    <span class="truncate pr-2"><strong>${d.name}</strong> (${d.type})</span>
+                    <button onclick="removeDevice('${d.id}')" class="text-slate-400 hover:text-red-400 font-bold text-xs">Remove</button>
+                </li>
+            `).join('');
+        }
+
+        async function refreshAllData() {
+            try {
+                const res = await fetch('/api/dashboard');
+                const data = await res.json();
+                if (data.success) {
+                    sensorDataCache = data.cache;
+                }
+                updateDashboardDisplay();
+            } catch (e) { console.error("Error gathering active sync metrics telemetry", e); }
+        }
+
+        function updateDashboardDisplay() {
+            const outdoorDev = devices.find(d => d.type === 'outdoor');
+            const outdoorData = outdoorDev ? sensorDataCache[outdoorDev.id] : null;
+
+            const outdoorCard = document.getElementById('outdoorCard');
+            if (outdoorData && outdoorData.absoluteHumidity !== null) {
+                outdoorCard.className = "bg-gradient-to-br from-slate-800 to-slate-900 border border-cyan-700 rounded-2xl p-6 shadow-md";
+                outdoorCard.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <span class="bg-cyan-500/10 text-cyan-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider">Reference Point</span>
+                            <h2 class="text-2xl font-bold mt-1">${outdoorDev.name} (Outdoor)</h2>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xs text-slate-400 uppercase font-bold tracking-wider">Absolute Humidity</p>
+                            <p class="text-3xl font-black text-cyan-400">${outdoorData.absoluteHumidity} <span class="text-lg font-normal text-cyan-400">g/m³</span></p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-800 text-center text-sm">
+                        <div><span class="text-slate-400">Temperature:</span> <strong class="text-slate-200">${outdoorData.temperature} °C</strong></div>
+                        <div><span class="text-slate-400">Relative Humidity:</span> <strong class="text-slate-200">${outdoorData.humidity} %</strong></div>
+                    </div>`;
+            } else {
+                outdoorCard.className = "bg-slate-800/50 border-2 border-dashed border-slate-700 rounded-2xl p-6 text-center text-slate-400";
+                outdoorCard.innerHTML = `Set up an Outdoor Sensor to begin comparisons.`;
+            }
+
+            const roomsGrid = document.getElementById('roomsGrid');
+            const indoorDevices = devices.filter(d => d.type === 'indoor');
+
+            if (indoorDevices.length === 0) {
+                roomsGrid.innerHTML = `<p class="text-slate-500 text-sm italic">No indoor rooms added yet.</p>`;
+                return;
+            }
+
+            roomsGrid.innerHTML = indoorDevices.map(dev => {
+                const data = sensorDataCache[dev.id];
+                if (!data) {
+                    return `<div class="bg-slate-800 p-6 rounded-xl border border-slate-700 text-slate-500 text-sm">Loading data for ${dev.name}...</div>`;
+                }
+
+                let recommendationHtml = '';
+                let cardColorClasses = '';
+                let absTextColorClass = '';
+                let absBorderColorClass = "";
+
+                if (!outdoorData || outdoorData.absoluteHumidity === null) {
+                    recommendationHtml = `<div class="mt-4 md:mt-0 md:w-64 bg-slate-900 p-2 rounded text-center flex flex-col justify-center text-xs text-slate-400">Awaiting Outdoor Data</div>`;
+                } else {
+                    const dynamicDiff = (data.absoluteHumidity - outdoorData.absoluteHumidity).toFixed(1);
+                    const isHigher = data.absoluteHumidity > outdoorData.absoluteHumidity;
+
+                    if (isHigher) {
+                        cardColorClasses = 'border-rose-500/40 shadow-lg shadow-rose-950/20';
+                        absTextColorClass = 'text-rose-400';
+                        absBorderColorClass = 'border-rose-900/40';
+                        
+                        recommendationHtml = `
+                            <div class="mt-4 md:mt-0 md:w-64 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl p-3 text-center flex flex-col justify-center">
+                                <p class="text-lg font-black mt-0.5">OPEN WINDOW</p>
+                                <p class="text-xs opacity-80 mt-0.5">${Math.abs(dynamicDiff)} g/m³ less moisture outside</p>
+                            </div>`;
+                    } else {
+                        cardColorClasses = 'border-emerald-500/40 shadow-lg shadow-emerald-950/20';
+                        absTextColorClass = 'text-emerald-400';
+                        absBorderColorClass = 'border-emerald-900/40';
+
+                        recommendationHtml = `
+                            <div class="mt-4 md:mt-0 md:w-64 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl p-3 text-center flex flex-col justify-center">
+                                <p class="text-lg font-black mt-0.5">CLOSE WINDOW</p>
+                                <p class="text-xs opacity-80 mt-0.5">${Math.abs(dynamicDiff)} g/m³ more moisture outside</p>
+                            </div>`;
+                    }
+                }
+
+                return `
+                    <div class="bg-slate-800 rounded-xl border p-5 flex flex-col md:flex-row md:justify-between gap-4 transition-all duration-300 ${cardColorClasses}">
+                        <div class="flex-1">
+                            <h3 class="text-lg font-bold text-slate-100">${dev.name}</h3>
+                            <div class="grid grid-cols-3 gap-2 mt-3 text-center">
+                                <div class="bg-slate-900/50 p-2 rounded border border-slate-800">
+                                    <span class="text-[10px] text-slate-400 block uppercase font-bold">Temp.</span>
+                                    <span class="text-sm font-bold text-slate-200">${data.temperature} °C</span>
+                                </div>
+                                <div class="bg-slate-900/50 p-2 rounded border border-slate-800">
+                                    <span class="text-[10px] text-slate-400 block uppercase font-bold">Rel H.</span>
+                                    <span class="text-sm font-bold text-slate-200">${data.humidity} %</span>
+                                </div>
+                                <div class="bg-slate-900/50 p-2 rounded border ${absBorderColorClass}">
+                                    <span class="text-[10px] text-slate-400 block uppercase font-bold">Abs H.</span>
+                                    <span class="text-sm font-black ${absTextColorClass}">${data.absoluteHumidity ? data.absoluteHumidity : 'N/A'} g/m³</span>
+                                </div>
+                            </div>
+                        </div>
+                        ${recommendationHtml}
+                    </div>`;
+            }).join('');
+        }
+
+        // Initialization Pipeline
+        async function init() {
+            await fetchDevices();
+            await refreshAllData();
+        }
+
+        init();
+        setInterval(refreshAllData, 5 * 60 * 1000); 
+    </script>
+</body>
+</html>
