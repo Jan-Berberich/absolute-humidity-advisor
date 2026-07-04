@@ -269,9 +269,12 @@
                 <div class="relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900 border border-cyan-700 rounded-2xl shadow-md min-h-[180px]">
                     <div id="content-${outdoorDev.id}" class="transition-opacity duration-500 z-10 relative p-6 h-full flex flex-col justify-between">
                         <div class="flex justify-between items-start">
-                            <div>
-                                <span class="bg-cyan-500/10 text-cyan-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider">Reference Point</span>
-                                <h2 class="text-2xl font-bold mt-2">${outdoorDev.name} (Outdoor)</h2>
+                            <div class="flex-1">
+                                <div class="flex items-center flex-wrap gap-2">
+                                    <span class="bg-cyan-500/10 text-cyan-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider">Reference Point</span>
+                                    <span class="text-[12px] text-slate-400 font-medium">outside</span>
+                                </div>
+                                <h2 class="text-2xl font-bold mt-2">${outdoorDev.name}</h2>
                             </div>
                             <div class="text-right cursor-pointer hover:bg-slate-700/50 p-2 -m-2 rounded-xl transition shrink-0" onclick="togglePlot('${outdoorDev.id}', 'absoluteHumidity')">
                                 <p class="text-xs text-slate-400 uppercase font-bold tracking-wider mb-1">Absolute Humidity:</p>
@@ -323,7 +326,7 @@
                         absTextColorClass = 'text-rose-400';
                         badgeHtml = `
                             <div class="flex items-center flex-wrap gap-2">
-                                <span class="bg-rose-500/20 text-rose-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider border border-rose-500/20">Open Window</span>
+                                <span class="bg-rose-500/10 text-rose-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider">Open Window</span>
                                 <span class="text-[12px] text-slate-400 font-medium">${Math.abs(dynamicDiff)} g/m³ less moisture outside</span>
                             </div>`;
                     } else {
@@ -331,7 +334,7 @@
                         absTextColorClass = 'text-emerald-400';
                         badgeHtml = `
                             <div class="flex items-center flex-wrap gap-2">
-                                <span class="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider border border-emerald-500/20">Close Window</span>
+                                <span class="bg-emerald-500/10 text-emerald-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider">Close Window</span>
                                 <span class="text-[12px] text-slate-400 font-medium">${Math.abs(dynamicDiff)} g/m³ more moisture outside</span>
                             </div>`;
                     }
