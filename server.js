@@ -144,7 +144,7 @@ async function sendPushNotification(title, message) {
     }
 }
 
-async function evaluateHumidityAlerts() {
+async function onTimer() {
     try {
         const outdoorDev = trackedDevices.find(d => d.type === "outdoor");
         let outdoorData = null;
@@ -184,7 +184,7 @@ async function evaluateHumidityAlerts() {
 }
 
 // Background Evaluation Worker & Logger (Runs every 10 minutes)
-cron.schedule("*/10 * * * *", evaluateHumidityAlerts);
+cron.schedule("*/10 * * * *", onTimer);
 
 // --- API ENDPOINTS ---
 
@@ -227,7 +227,6 @@ app.get("/api/dashboard", async (req, res) => {
     }
 });
 
-// NEW: Real Historical Data Endpoint (Parses and aggregates CSV)
 app.get("/api/history/:id", (req, res) => {
     const { id } = req.params;
     const { metric, window } = req.query; 
@@ -245,10 +244,10 @@ app.get("/api/history/:id", (req, res) => {
         cutoffDate.setDate(now.getDate() - 7);
         groupFormat = 'hour'; // Average per hour
     } else if (window === '1mo') {
-        cutoffDate.setMonth(now.getMonth() - 1);
+        cutoffDate.setDate(now.getDate() - 30);
         groupFormat = 'day'; // Average per day
     } else if (window === '1y') {
-        cutoffDate.setFullYear(now.getFullYear() - 1);
+        cutoffDate.setDate(now.getDate() - 365);
         groupFormat = 'month'; // Average per month
     }
 
