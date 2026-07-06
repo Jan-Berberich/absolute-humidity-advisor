@@ -96,7 +96,7 @@
             }
 
             if (!state) {
-                plotStates[id] = { metric, window: '1w', chartInstance: null };
+                plotStates[id] = { metric, window: '24h', chartInstance: null };
             } else {
                 plotStates[id].metric = metric;
             }
@@ -114,11 +114,22 @@
             const state = plotStates[id];
             if (!state) return;
 
-            if (state.window === '1w') state.window = '1mo';
-            else if (state.window === '1mo') state.window = '1y';
-            else state.window = '1w';
+            switch (state.window) {
+                case '24h':
+                    state.window = '7d';
+                    break;
+                case '7d':
+                    state.window = '30d';
+                    break;
+                case '30d':
+                    state.window = '12mo';
+                    break;
+                case '12mo':
+                    state.window = '24h';
+                    break
+            }
 
-            document.getElementById(`plot-label-${id}`).innerText = state.window.toUpperCase();
+            document.getElementById(`plot-label-${id}`).innerText = state.window;
             await renderChart(id);
         }
 
@@ -250,7 +261,7 @@
                 <div id="plot-layer-${id}" class="absolute inset-0 z-20 opacity-0 pointer-events-none transition-opacity duration-300 bg-slate-900/60 backdrop-blur-[2px] flex flex-col p-4 cursor-pointer" onclick="closePlot('${id}')">
                     <div class="flex justify-between items-center mb-2">
                         <span id="plot-title-${id}" class="text-xs font-bold text-slate-100 drop-shadow-md tracking-wider"></span>
-                        <button id="plot-label-${id}" class="text-[10px] font-black text-cyan-400 bg-cyan-950/80 hover:bg-cyan-800 px-3 py-1.5 rounded border border-cyan-700 transition-colors z-30 cursor-pointer shadow-lg" onclick="cycleTimeframe('${id}', event)">1W</button>
+                        <button id="plot-label-${id}" class="text-[10px] font-black text-cyan-400 bg-cyan-950/80 hover:bg-cyan-800 px-3 py-1.5 rounded border border-cyan-700 transition-colors z-30 cursor-pointer shadow-lg" onclick="cycleTimeframe('${id}', event)">24h</button>
                     </div>
                     <div class="relative w-full flex-1 min-h-0">
                         <canvas id="canvas-${id}"></canvas>

@@ -241,15 +241,23 @@ app.get("/api/history/:id", (req, res) => {
     let groupFormat = 'hour'; // default grouping
 
     // Set cutoff limits and grouping strategy to prevent crashing the frontend chart
-    if (window === '1w') {
-        cutoffDate.setDate(now.getDate() - 7);
-        groupFormat = 'hour'; // Average per hour
-    } else if (window === '1mo') {
-        cutoffDate.setDate(now.getDate() - 30);
-        groupFormat = 'day'; // Average per day
-    } else if (window === '1y') {
-        cutoffDate.setDate(now.getDate() - 365);
-        groupFormat = 'month'; // Average per month
+    switch (window) {
+        case '24h':
+            cutoffDate.setDate(now.getDate() - 1);
+            groupFormat = 'hour'; // Average per hour
+            break;
+        case '7d':
+            cutoffDate.setDate(now.getDate() - 7);
+            groupFormat = 'day'; // Average per day
+            break;
+        case '30d':
+            cutoffDate.setDate(now.getDate() - 30);
+            groupFormat = 'day'; // Average per day
+            break;
+        case '12mo':
+            cutoffDate.setDate(now.getDate() - 365);
+            groupFormat = 'month'; // Average per month
+            break
     }
 
     try {
