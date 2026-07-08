@@ -96,7 +96,7 @@
             }
 
             if (!state) {
-                plotStates[id] = { metric, window: '24h', chartInstance: null };
+                plotStates[id] = { metric, window: '72h', chartInstance: null };
             } else {
                 plotStates[id].metric = metric;
             }
@@ -115,17 +115,14 @@
             if (!state) return;
 
             switch (state.window) {
-                case '24h':
-                    state.window = '7d';
-                    break;
-                case '7d':
+                case '72h':
                     state.window = '30d';
                     break;
                 case '30d':
                     state.window = '12mo';
                     break;
                 case '12mo':
-                    state.window = '24h';
+                    state.window = '72h';
                     break
             }
 
@@ -261,7 +258,7 @@
                 <div id="plot-layer-${id}" class="absolute inset-0 z-20 opacity-0 pointer-events-none transition-opacity duration-300 bg-slate-900/60 backdrop-blur-[2px] flex flex-col p-4 cursor-pointer" onclick="closePlot('${id}')">
                     <div class="flex justify-between items-center mb-2">
                         <span id="plot-title-${id}" class="text-xs font-bold text-slate-100 drop-shadow-md tracking-wider"></span>
-                        <button id="plot-label-${id}" class="text-[10px] font-black text-cyan-400 bg-cyan-950/80 hover:bg-cyan-800 px-3 py-1.5 rounded border border-cyan-700 transition-colors z-30 cursor-pointer shadow-lg" onclick="cycleTimeframe('${id}', event)">24h</button>
+                        <button id="plot-label-${id}" class="text-[10px] font-black text-cyan-400 bg-cyan-950/80 hover:bg-cyan-800 px-3 py-1.5 rounded border border-cyan-700 transition-colors z-30 cursor-pointer shadow-lg" onclick="cycleTimeframe('${id}', event)">72h</button>
                     </div>
                     <div class="relative w-full flex-1 min-h-0">
                         <canvas id="canvas-${id}"></canvas>

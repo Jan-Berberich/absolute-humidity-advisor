@@ -242,13 +242,9 @@ app.get("/api/history/:id", (req, res) => {
 
     // Set cutoff limits and grouping strategy to prevent crashing the frontend chart
     switch (window) {
-        case '24h':
-            cutoffDate.setDate(now.getDate() - 1);
+        case '72h':
+            cutoffDate.setDate(now.getDate() - 3);
             groupFormat = 'hour'; // Average per hour
-            break;
-        case '7d':
-            cutoffDate.setDate(now.getDate() - 7);
-            groupFormat = 'day'; // Average per day
             break;
         case '30d':
             cutoffDate.setDate(now.getDate() - 30);
