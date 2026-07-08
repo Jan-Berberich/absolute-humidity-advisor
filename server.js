@@ -240,11 +240,11 @@ app.get("/api/history/:id", (req, res) => {
     let cutoffDate = new Date();
     let groupFormat = 'hour'; // default grouping
 
-    // Set cutoff limits and grouping strategy to prevent crashing the frontend chart
+    // Set cutoff limits and grouping strategy
     switch (window) {
         case '72h':
             cutoffDate.setDate(now.getDate() - 3);
-            groupFormat = 'hour'; // Average per hour
+            groupFormat = 'hour'; // First value per hour + current value
             break;
         case '30d':
             cutoffDate.setDate(now.getDate() - 30);
@@ -294,20 +294,55 @@ app.get("/api/history/:id", (req, res) => {
                 label = dateObj.toLocaleString('default', { month: 'short', year: '2-digit' });
             }
 
-            // Accumulate for averaging
+            // Accumulate data, storing first and tracking the latest for 72h logic
             if (!groupedData[groupKey]) {
-                groupedData[groupKey] = { label, sum: 0, count: 0, time: dateObj.getTime() };
+                groupedData[groupKey] = { 
+                    label, 
+                    sum: val, 
+                    count: 1, 
+                    time: dateObj.getTime(),
+                    firstVal: val,
+                    lastTime: dateObj,
+                    lastVal: val
+                };
+            } else {
+                groupedData[groupKey].sum += val;
+                groupedData[groupKey].count += 1;
+                groupedData[groupKey].lastTime = dateObj; // Update to catch the latest point in the window
+                groupedData[groupKey].lastVal = val;
             }
-            groupedData[groupKey].sum += val;
-            groupedData[groupKey].count += 1;
         }
 
         // Sort chronologically
         const sortedGroups = Object.values(groupedData).sort((a, b) => a.time - b.time);
 
-        // Extract final labels and average values
-        const labels = sortedGroups.map(g => g.label);
-        const points = sortedGroups.map(g => parseFloat((g.sum / g.count).toFixed(1)));
+        const labels = [];
+        const points = [];
+
+        // Extract final labels and values based on the requested window
+        for (let j = 0; j < sortedGroups.length; j++) {
+            const g = sortedGroups[j];
+
+            if (window === '72h') {
+                // 1. Plot the first value of the hour
+                labels.push(g.label);
+                points.push(g.firstVal);
+
+                // 2. If we are on the very last group (unfinished hour) and there is more than 1 reading,
+                // plot the current (latest) value as an additional data point.
+                if (j === sortedGroups.length - 1 && g.count > 1) {
+                    const mins = g.lastTime.getMinutes().toString().padStart(2, '0');
+                    const currentLabel = `${g.lastTime.getDate()}/${g.lastTime.getMonth()+1} ${g.lastTime.getHours()}:${mins}`;
+                    
+                    labels.push(currentLabel);
+                    points.push(g.lastVal);
+                }
+            } else {
+                // Average for 30d and 12mo
+                labels.push(g.label);
+                points.push(parseFloat((g.sum / g.count).toFixed(1)));
+            }
+        }
 
         res.json({ success: true, data: { labels, points } });
 
