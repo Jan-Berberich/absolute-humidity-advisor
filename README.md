@@ -14,7 +14,6 @@ TUYA_SECRET=$yourTuyaSecret
 TUYA_ENDPOINT=$yourTuyaEndpoint
 PORT=$choosePort
 NTFY_TOPIC=$chooseNtfyTopic
-NTFY_IP=$yourHostIpAddress
 NTFY_DIFF_THRESHOLD=0.3
 ```
 

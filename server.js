@@ -4,11 +4,27 @@ const crypto = require("crypto");
 const cron = require("node-cron");
 const fs = require("fs"); 
 const path = require("path");
+const os = require("os")
 require("dotenv").config();
 
 const app = express();
 app.use(express.json());
 app.use(express.static("public"));
+
+
+let IP = '';
+const interfaces = os.networkInterfaces();
+for (const devName in interfaces) {
+    const iface = interfaces[devName];
+    for (let i = 0; i < iface.length; i++) {
+        const alias = iface[i];
+        // Filter for IPv4 and ensure it's not the internal loopback (127.0.0.1)
+        if (alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal) {
+            IP = alias.address;
+        }
+    }
+}
+if (IP === '') throw("Failed to get IPv4 IP-Address.");
 
 const { TUYA_CLIENT_ID, TUYA_SECRET, TUYA_ENDPOINT, PORT, NTFY_TOPIC, NTFY_IP, NTFY_DIFF_THRESHOLD } = process.env;
 
@@ -236,21 +252,23 @@ app.get("/api/history/:id", (req, res) => {
 
     const now = new Date();
     let cutoffDate = new Date();
-    let groupFormat = 'hour'; // default grouping
+    let groupFormat = 'hour';
+    let aggregate = 'mean';
 
     // Set cutoff limits and grouping strategy
     switch (window) {
         case '72h':
             cutoffDate.setDate(now.getDate() - 3);
-            groupFormat = 'hour'; // First value per hour + current value
+            groupFormat = 'hour';
+            aggregate = 'first';
             break;
         case '30d':
             cutoffDate.setDate(now.getDate() - 30);
-            groupFormat = 'day'; // Average per day
+            groupFormat = 'day';
             break;
         case '12mo':
             cutoffDate.setDate(now.getDate() - 365);
-            groupFormat = 'month'; // Average per month
+            groupFormat = 'month';
             break
     }
 
@@ -271,9 +289,11 @@ app.get("/api/history/:id", (req, res) => {
 
             // Select requested metric
             let val = 0;
-            if (metric === 'temperature') val = parseFloat(temp);
-            else if (metric === 'humidity') val = parseFloat(hum);
-            else if (metric === 'absoluteHumidity') val = parseFloat(absHum);
+            switch (metric) {
+                case 'temperature'      : val = parseFloat(temp)  ; break;
+                case 'humidity'         : val = parseFloat(hum)   ; break;
+                case 'absoluteHumidity' : val = parseFloat(absHum); break;
+            }
 
             if (isNaN(val)) continue;
 
@@ -281,15 +301,19 @@ app.get("/api/history/:id", (req, res) => {
             let groupKey = "";
             let label = "";
             
-            if (groupFormat === 'hour') {
-                groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}-${dateObj.getHours()}`;
-                label = `${dateObj.getDate()}/${dateObj.getMonth()+1} ${dateObj.getHours()}:00`;
-            } else if (groupFormat === 'day') {
-                groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}`;
-                label = `${dateObj.getDate()}/${dateObj.getMonth()+1}`;
-            } else { // month
-                groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}`;
-                label = dateObj.toLocaleString('default', { month: 'short', year: '2-digit' });
+            switch (groupFormat) {
+                case 'hour':
+                    groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}-${dateObj.getHours()}`;
+                    label = `${dateObj.getDate()}/${dateObj.getMonth()+1} ${dateObj.getHours()}:00`;
+                    break;
+                case 'day':
+                    groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}`;
+                    label = `${dateObj.getDate()}/${dateObj.getMonth()+1}`;
+                    break;
+                case 'month':
+                    groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}`;
+                    label = dateObj.toLocaleString('default', { month: 'short', year: '2-digit' });
+                    break;
             }
 
             // Accumulate data, storing first and tracking the latest for 72h logic
@@ -321,22 +345,18 @@ app.get("/api/history/:id", (req, res) => {
         for (let j = 0; j < sortedGroups.length; j++) {
             const g = sortedGroups[j];
 
-            if (window === '72h') {
-                // 1. Plot the first value of the hour
+            if (aggregate === 'mean') {
                 labels.push(g.label);
                 points.push(g.firstVal);
 
-                // 2. If we are on the very last group (unfinished hour) and there is more than 1 reading,
-                // plot the current (latest) value as an additional data point.
                 if (j === sortedGroups.length - 1 && g.count > 1) {
                     const mins = g.lastTime.getMinutes().toString().padStart(2, '0');
                     const currentLabel = `${g.lastTime.getDate()}/${g.lastTime.getMonth()+1} ${g.lastTime.getHours()}:${mins}`;
                     
                     labels.push(currentLabel);
-                    points.push(g.lastVal);
+                    points.push(sensorDataCache[id][metric]);
                 }
             } else {
-                // Average for 30d and 12mo
                 labels.push(g.label);
                 points.push(parseFloat((g.sum / g.count).toFixed(1)));
             }
@@ -350,4 +370,4 @@ app.get("/api/history/:id", (req, res) => {
     }
 });
 
-app.listen(PORT, () => console.log(`Absolute Humidity Advisor Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Absolute Humidity Advisor Server running on http://${IP}:${PORT}`));
