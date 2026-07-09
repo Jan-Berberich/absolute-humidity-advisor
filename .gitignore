@@ -1,0 +1,9 @@
+*.*
+node_modules
+
+!.gitignore
+!demo.png
+!package.json
+!README.md
+!*.html
+!*.js
