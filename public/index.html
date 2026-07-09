@@ -67,8 +67,28 @@
     <script>
         let devices = [];
         let sensorDataCache = {};
-        
         let plotStates = {}; 
+
+        function getBatteryBadge(battery, customClasses = '') {
+            if (battery === "N/A" || battery === undefined || battery === null) return '';
+            
+            let isLow = false;
+            let label = battery;
+            
+            if (typeof battery === 'number') {
+                isLow = battery <= 20;
+                label = `${battery}%`;
+            } else {
+                isLow = String(battery).toLowerCase() === 'low';
+            }
+
+            let color = isLow ? 'text-red-400 bg-red-500/10 border-red-500/30 shadow-[0_0_10px_rgba(248,113,113,0.15)]' : 
+                        (typeof battery === 'number' && battery <= 50) ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30' : 
+                        'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+            
+            let icon = isLow ? '🪫' : '🔋';
+            return `<span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wider align-middle ${color} ${customClasses}">${icon} ${label}</span>`;
+        }
 
         async function fetchPlotData(id, metric, window) {
             const res = await fetch(`/api/history/${id}?metric=${metric}&window=${window}`);
@@ -115,15 +135,9 @@
             if (!state) return;
 
             switch (state.window) {
-                case '72h':
-                    state.window = '30d';
-                    break;
-                case '30d':
-                    state.window = '12mo';
-                    break;
-                case '12mo':
-                    state.window = '72h';
-                    break
+                case '72h': state.window = '30d'; break;
+                case '30d': state.window = '12mo'; break;
+                case '12mo': state.window = '72h'; break
             }
 
             document.getElementById(`plot-label-${id}`).innerText = state.window;
@@ -170,12 +184,12 @@
                         x: { 
                             ticks: { color: '#64748b', font: {size: 10} }, 
                             grid: { display: false },
-                            border: { display: false } // Hides the solid X-axis spine
+                            border: { display: false } 
                         },
                         y: { 
                             ticks: { color: '#64748b', font: {size: 10} }, 
                             grid: { color: '#334155', borderDash: [5, 5] },
-                            border: { display: false } // Hides the solid Y-axis spine causing the artifact
+                            border: { display: false } 
                         }
                     }
                 }
@@ -234,12 +248,18 @@
 
         function renderDeviceList() {
             const list = document.getElementById('deviceList');
-            list.innerHTML = devices.map((d) => `
-                <li class="flex justify-between items-center bg-slate-900 p-2 rounded border border-slate-800">
-                    <span class="truncate pr-2"><strong>${d.name}</strong> (${d.type})</span>
-                    <button onclick="removeDevice('${d.id}')" class="text-slate-400 hover:text-red-400 font-bold text-xs">Remove</button>
+            list.innerHTML = devices.map((d) => {
+                const data = sensorDataCache[d.id];
+                const batteryHtml = data ? getBatteryBadge(data.battery, 'shrink-0') : '';
+                return `
+                <li class="flex justify-between items-center bg-slate-900 p-2.5 rounded-lg border border-slate-800 gap-2">
+                    <div class="flex items-center flex-1 min-w-0 gap-2">
+                        <span class="truncate text-slate-200"><strong>${d.name}</strong> <span class="text-xs text-slate-500">(${d.type})</span></span>
+                    </div>
+                    ${batteryHtml}
+                    <button onclick="removeDevice('${d.id}')" class="text-slate-400 hover:text-red-400 font-bold text-xs shrink-0">Remove</button>
                 </li>
-            `).join('');
+            `}).join('');
         }
 
         async function refreshAllData() {
@@ -250,6 +270,8 @@
                     sensorDataCache = data.cache;
                 }
                 updateDashboardDisplay();
+                // Ensure the list re-renders to catch new battery data after cache is updated
+                renderDeviceList(); 
             } catch (e) { console.error("Error gathering active sync metrics telemetry", e); }
         }
 

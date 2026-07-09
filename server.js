@@ -4,13 +4,12 @@ const crypto = require("crypto");
 const cron = require("node-cron");
 const fs = require("fs"); 
 const path = require("path");
-const os = require("os")
+const os = require("os");
 require("dotenv").config();
 
 const app = express();
 app.use(express.json());
 app.use(express.static("public"));
-
 
 let IP = '';
 const interfaces = os.networkInterfaces();
@@ -18,7 +17,6 @@ for (const devName in interfaces) {
     const iface = interfaces[devName];
     for (let i = 0; i < iface.length; i++) {
         const alias = iface[i];
-        // Filter for IPv4 and ensure it's not the internal loopback (127.0.0.1)
         if (alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal) {
             IP = alias.address;
         }
@@ -29,11 +27,10 @@ if (IP === '') throw("Failed to get IPv4 IP-Address.");
 const { TUYA_CLIENT_ID, TUYA_SECRET, TUYA_ENDPOINT, PORT, NTFY_TOPIC, NTFY_IP, NTFY_DIFF_THRESHOLD } = process.env;
 
 const DATA_FILE = path.join(__dirname, "devices.json");
-const HISTORY_FILE = path.join(__dirname, "history.csv"); // New local CSV storage
+const HISTORY_FILE = path.join(__dirname, "history.csv");
 
 let trackedDevices = []; 
 
-// Initialize CSV with headers if it doesn't exist
 if (!fs.existsSync(HISTORY_FILE)) {
     fs.writeFileSync(HISTORY_FILE, "timestamp,deviceId,temperature,humidity,absoluteHumidity\n", "utf8");
     console.log("ℹ️ Created new history.csv file for data logging.");
@@ -64,7 +61,6 @@ function saveDevicesToFile() {
     }
 }
 
-// Write a single data point to the CSV
 function logDataToCSV(deviceId, data) {
     if (!data || data.temperature === "N/A" || data.temperature === null) return;
     const timestamp = new Date().toISOString();
@@ -81,6 +77,10 @@ loadDevicesFromFile();
 let sensorDataCache = {};
 let tokenCache = { token: null, expiresAt: 0 };
 let lastNotificationDiffs = {}; 
+
+// Battery notification state tracker (prevents notification spam)
+let lastNotificationBattery = {}; 
+const BATTERY_THRESHOLD = 20;
 
 function calculateSign(clientId, secret, timestamp, accessToken, stringToSign) {
     const str = clientId + (accessToken ? accessToken : "") + timestamp + stringToSign;
@@ -137,6 +137,7 @@ async function processDeviceData(deviceId) {
     const statusResult = await makeTuyaRequest("GET", `/v1.0/devices/${deviceId}/status`);
     let temperature = "N/A";
     let humidity = "N/A";
+    let battery = "N/A";
 
     statusResult.forEach(item => {
         if (item.code === "va_temperature" || item.code === "temp_current") {
@@ -145,10 +146,14 @@ async function processDeviceData(deviceId) {
         if (item.code === "va_humidity" || item.code === "humidity_value") {
             humidity = item.value;
         }
+        // Capture different variations of Tuya battery reporting codes
+        if (item.code === "battery_percentage" || item.code === "va_battery" || item.code === "battery" || item.code === "battery_state") {
+            battery = item.value;
+        }
     });
 
     const absoluteHumidity = getAbsoluteHumidity(temperature, humidity);
-    return { temperature, humidity, absoluteHumidity, deviceId };
+    return { temperature, humidity, absoluteHumidity, battery, deviceId };
 }
 
 async function sendPushNotification(title, message) {
@@ -161,6 +166,28 @@ async function sendPushNotification(title, message) {
     }
 }
 
+function evaluateBatteryState(device, data) {
+    if (!data || data.battery === "N/A" || data.battery === undefined || data.battery === null) return;
+    
+    let isLow = false;
+    if (typeof data.battery === 'number') {
+        isLow = data.battery <= BATTERY_THRESHOLD;
+    } else if (typeof data.battery === 'string') {
+        isLow = data.battery.toLowerCase() === 'low';
+    }
+
+    const alreadyNotified = lastNotificationBattery[device.id];
+
+    if (isLow && !alreadyNotified) {
+        lastNotificationBattery[device.id] = true;
+        const levelStr = typeof data.battery === 'number' ? `${data.battery}%` : data.battery;
+        sendPushNotification(`Low Battery Alert: ${device.name}`, `Battery is at ${levelStr}! Please replace soon.`);
+    } else if (!isLow && alreadyNotified) {
+        // Reset state when battery is replaced/charged
+        lastNotificationBattery[device.id] = false;
+    }
+}
+
 async function onTimer() {
     try {
         const outdoorDev = trackedDevices.find(d => d.type === "outdoor");
@@ -169,16 +196,17 @@ async function onTimer() {
         if (outdoorDev) {
             outdoorData = await processDeviceData(outdoorDev.id);
             sensorDataCache[outdoorDev.id] = outdoorData;
-            logDataToCSV(outdoorDev.id, outdoorData); // Log outdoor data to CSV
+            logDataToCSV(outdoorDev.id, outdoorData);
+            evaluateBatteryState(outdoorDev, outdoorData);
         }
 
         const indoorDevices = trackedDevices.filter(d => d.type === "indoor");
         for (const dev of indoorDevices) {
             const indoorData = await processDeviceData(dev.id);
             sensorDataCache[dev.id] = indoorData;
-            logDataToCSV(dev.id, indoorData); // Log indoor data to CSV
+            logDataToCSV(dev.id, indoorData);
+            evaluateBatteryState(dev, indoorData);
 
-            // Only trigger alert logic if we have both absolute humidities available
             if (!indoorData.absoluteHumidity || !outdoorData || !outdoorData.absoluteHumidity) continue;
 
             const diff = (indoorData.absoluteHumidity - outdoorData.absoluteHumidity).toFixed(1);
@@ -223,6 +251,7 @@ app.delete("/api/devices/:id", (req, res) => {
     trackedDevices = trackedDevices.filter(d => d.id !== id);
     delete sensorDataCache[id];
     delete lastNotificationDiffs[id];
+    delete lastNotificationBattery[id];
     saveDevicesToFile(); 
     res.json({ success: true, devices: trackedDevices });
 });
@@ -255,7 +284,6 @@ app.get("/api/history/:id", (req, res) => {
     let groupFormat = 'hour';
     let aggregate = 'mean';
 
-    // Set cutoff limits and grouping strategy
     switch (window) {
         case '72h':
             cutoffDate.setDate(now.getDate() - 3);
@@ -277,17 +305,15 @@ app.get("/api/history/:id", (req, res) => {
         const lines = fileContent.trim().split("\n");
         let groupedData = {};
 
-        // Skip the header row (i = 1)
         for (let i = 1; i < lines.length; i++) {
             if (!lines[i]) continue;
             
             const [ts, devId, temp, hum, absHum] = lines[i].split(",");
-            if (devId !== id) continue; // Only process the requested device
+            if (devId !== id) continue; 
 
             const dateObj = new Date(ts);
-            if (dateObj < cutoffDate) continue; // Ignore old data outside the requested window
+            if (dateObj < cutoffDate) continue; 
 
-            // Select requested metric
             let val = 0;
             switch (metric) {
                 case 'temperature'      : val = parseFloat(temp)  ; break;
@@ -297,7 +323,6 @@ app.get("/api/history/:id", (req, res) => {
 
             if (isNaN(val)) continue;
 
-            // Grouping logic based on time window
             let groupKey = "";
             let label = "";
             
@@ -316,7 +341,6 @@ app.get("/api/history/:id", (req, res) => {
                     break;
             }
 
-            // Accumulate data, storing first and tracking the latest for 72h logic
             if (!groupedData[groupKey]) {
                 groupedData[groupKey] = { 
                     label, 
@@ -330,18 +354,15 @@ app.get("/api/history/:id", (req, res) => {
             } else {
                 groupedData[groupKey].sum += val;
                 groupedData[groupKey].count += 1;
-                groupedData[groupKey].lastTime = dateObj; // Update to catch the latest point in the window
+                groupedData[groupKey].lastTime = dateObj; 
                 groupedData[groupKey].lastVal = val;
             }
         }
 
-        // Sort chronologically
         const sortedGroups = Object.values(groupedData).sort((a, b) => a.time - b.time);
-
         const labels = [];
         const points = [];
 
-        // Extract final labels and values based on the requested window
         for (let j = 0; j < sortedGroups.length; j++) {
             const g = sortedGroups[j];
 
