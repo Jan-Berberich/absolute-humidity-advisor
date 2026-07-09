@@ -10,7 +10,7 @@ const app = express();
 app.use(express.json());
 app.use(express.static("public"));
 
-const { TUYA_CLIENT_ID, TUYA_SECRET, TUYA_ENDPOINT, PORT, NTFY_TOPIC, NTFY_IP } = process.env;
+const { TUYA_CLIENT_ID, TUYA_SECRET, TUYA_ENDPOINT, PORT, NTFY_TOPIC, NTFY_IP, NTFY_DIFF_THRESHOLD } = process.env;
 
 const DATA_FILE = path.join(__dirname, "devices.json");
 const HISTORY_FILE = path.join(__dirname, "history.csv"); // New local CSV storage
@@ -64,7 +64,7 @@ loadDevicesFromFile();
 
 let sensorDataCache = {};
 let tokenCache = { token: null, expiresAt: 0 };
-let lastNotificationStates = {}; 
+let lastNotificationDiffs = {}; 
 
 function calculateSign(clientId, secret, timestamp, accessToken, stringToSign) {
     const str = clientId + (accessToken ? accessToken : "") + timestamp + stringToSign;
@@ -166,13 +166,11 @@ async function onTimer() {
             if (!indoorData.absoluteHumidity || !outdoorData || !outdoorData.absoluteHumidity) continue;
 
             const diff = (indoorData.absoluteHumidity - outdoorData.absoluteHumidity).toFixed(1);
-            const shouldOpen = indoorData.absoluteHumidity > outdoorData.absoluteHumidity;
-            const targetState = shouldOpen ? "OPEN" : "CLOSE";
 
-            if (lastNotificationStates[dev.id] !== targetState) {
-                lastNotificationStates[dev.id] = targetState;
+            if (Math.sign(diff) !== Math.sign(lastNotificationDiffs[dev.id]) && Math.abs(diff) >= NTFY_DIFF_THRESHOLD) {
+                lastNotificationDiffs[dev.id] = diff;
                 const title = `Absolute Humidity Advisor: ${dev.name}`;
-                const body = shouldOpen 
+                const body = diff > 0 
                     ? `OPEN window! ${Math.abs(diff)} g/m³ less moisture outside.`
                     : `CLOSE window! ${Math.abs(diff)} g/m³ more moisture outside.`;
 
@@ -208,7 +206,7 @@ app.delete("/api/devices/:id", (req, res) => {
     const { id } = req.params;
     trackedDevices = trackedDevices.filter(d => d.id !== id);
     delete sensorDataCache[id];
-    delete lastNotificationStates[id];
+    delete lastNotificationDiffs[id];
     saveDevicesToFile(); 
     res.json({ success: true, devices: trackedDevices });
 });
