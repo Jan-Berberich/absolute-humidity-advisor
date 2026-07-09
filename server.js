@@ -36,6 +36,10 @@ if (!fs.existsSync(HISTORY_FILE)) {
     console.log("ℹ️ Created new history.csv file for data logging.");
 }
 
+function padStart02(number) {
+    return String(number).padStart(2, '0');
+}
+
 function loadDevicesFromFile() {
     try {
         if (fs.existsSync(DATA_FILE)) {
@@ -328,15 +332,15 @@ app.get("/api/history/:id", (req, res) => {
             
             switch (groupFormat) {
                 case 'hour':
-                    groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}-${dateObj.getHours()}`;
-                    label = `${dateObj.getDate()}/${dateObj.getMonth()+1} ${dateObj.getHours()}:00`;
+                    groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}-${dateObj.getHours()}`;
+                    label = `${padStart02(dateObj.getHours())}:00`;
                     break;
                 case 'day':
-                    groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}-${dateObj.getDate()}`;
-                    label = `${dateObj.getDate()}/${dateObj.getMonth()+1}`;
+                    groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}`;
+                    label = `${padStart02(dateObj.getDate())}.${padStart02(dateObj.getMonth() + 1)}`;
                     break;
                 case 'month':
-                    groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}`;
+                    groupKey = `${dateObj.getFullYear()}-${dateObj.getMonth() + 1}`;
                     label = dateObj.toLocaleString('default', { month: 'short', year: '2-digit' });
                     break;
             }
@@ -366,14 +370,12 @@ app.get("/api/history/:id", (req, res) => {
         for (let j = 0; j < sortedGroups.length; j++) {
             const g = sortedGroups[j];
 
-            if (aggregate === 'mean') {
+            if (aggregate === 'first') {
                 labels.push(g.label);
                 points.push(g.firstVal);
 
                 if (j === sortedGroups.length - 1 && g.count > 1) {
-                    const mins = g.lastTime.getMinutes().toString().padStart(2, '0');
-                    const currentLabel = `${g.lastTime.getDate()}/${g.lastTime.getMonth()+1} ${g.lastTime.getHours()}:${mins}`;
-                    
+                    const currentLabel = `${padStart02(now.getHours())}:${padStart02(now.getMinutes())}`;
                     labels.push(currentLabel);
                     points.push(sensorDataCache[id][metric]);
                 }
