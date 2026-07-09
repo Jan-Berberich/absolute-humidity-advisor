@@ -374,16 +374,15 @@ app.get("/api/history/:id", (req, res) => {
             if (aggregate === 'first') {
                 labels.push(g.label);
                 points.push(g.firstVal);
-
-                if (j === sortedGroups.length - 1 && g.count > 1) {
-                    const currentLabel = `${padStart02(now.getHours())}:${padStart02(now.getMinutes())}`;
-                    labels.push(currentLabel);
-                    points.push(sensorDataCache[id][metric]);
-                }
             } else {
                 labels.push(g.label);
                 points.push(parseFloat((g.sum / g.count).toFixed(1)));
             }
+        }
+        if (aggregate === 'first') {
+            const currentLabel = `${padStart02(now.getHours())}:${padStart02(now.getMinutes())}`;
+            labels.push(currentLabel);
+            points.push(sensorDataCache[id][metric]);
         }
 
         res.json({ success: true, data: { labels, points } });
