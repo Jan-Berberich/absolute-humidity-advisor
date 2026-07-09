@@ -11,20 +11,21 @@ const app = express();
 app.use(express.json());
 app.use(express.static("public"));
 
-let IP = '';
-const interfaces = os.networkInterfaces();
-for (const devName in interfaces) {
-    const iface = interfaces[devName];
-    for (let i = 0; i < iface.length; i++) {
-        const alias = iface[i];
-        if (alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal) {
-            IP = alias.address;
+const IP = (() => {
+    const interfaces = os.networkInterfaces();
+    for (const devName in interfaces) {
+        const iface = interfaces[devName];
+        for (let i = 0; i < iface.length; i++) {
+            const alias = iface[i];
+            if (alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal) {
+                return alias.address;
+            }
         }
     }
-}
-if (IP === '') throw("Failed to get IPv4 IP-Address.");
+    throw("Failed to get IPv4 IP-Address.");
+})();
 
-const { TUYA_CLIENT_ID, TUYA_SECRET, TUYA_ENDPOINT, PORT, NTFY_TOPIC, NTFY_IP, NTFY_DIFF_THRESHOLD } = process.env;
+const { TUYA_CLIENT_ID, TUYA_SECRET, TUYA_ENDPOINT, PORT, NTFY_TOPIC, NTFY_DIFF_THRESHOLD } = process.env;
 
 const DATA_FILE = path.join(__dirname, "devices.json");
 const HISTORY_FILE = path.join(__dirname, "history.csv");
@@ -162,7 +163,7 @@ async function processDeviceData(deviceId) {
 
 async function sendPushNotification(title, message) {
     if (!NTFY_TOPIC) return;
-    const headers = { "Title": title, "Click": `http://${NTFY_IP}:${PORT}` };
+    const headers = { "Title": title, "Click": `http://${IP}:${PORT}` };
     try {
         await axios.post(`https://ntfy.sh/${NTFY_TOPIC}`, message, { headers });
     } catch (error) {
