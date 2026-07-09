@@ -6,7 +6,7 @@ A web UI for Tuya Temperature & Humidity Sensors to advise you about when to ven
 
 ## Quick start
 
-- Create a `.env` file (fill in `$placeholders` with your values):
+- Create a `.env` file in your project folder (fill in `$placeholders` with your values):
 
 ```bash
 TUYA_CLIENT_ID=$yourTuyaClientId
