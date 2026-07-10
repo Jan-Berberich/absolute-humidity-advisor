@@ -73,7 +73,7 @@
             if (battery === "N/A" || battery === undefined || battery === null) return '';
             
             let isLow = false;
-            let label = battery;
+            let label = battery.replace('dle', ''); // middle -> mid
             
             if (typeof battery === 'number') {
                 isLow = battery <= 20;
@@ -87,7 +87,7 @@
                         'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
             
             let icon = isLow ? '🪫' : '🔋';
-            return `<span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wider align-middle ${color} ${customClasses}">${icon} ${label}</span>`;
+            return `<span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border font-bold tracking-wider align-middle ${color} ${customClasses}">${icon}${label}</span>`;
         }
 
         async function fetchPlotData(id, metric, window) {
@@ -257,7 +257,7 @@
                         <span class="truncate text-slate-200"><strong>${d.name}</strong> <span class="text-xs text-slate-500">(${d.type})</span></span>
                     </div>
                     ${batteryHtml}
-                    <button onclick="removeDevice('${d.id}')" class="text-slate-400 hover:text-red-400 font-bold text-xs shrink-0">Remove</button>
+                    <button onclick="removeDevice('${d.id}')" class="text-slate-400 hover:text-red-400 font-bold text-xs shrink-0">remove</button>
                 </li>
             `}).join('');
         }
