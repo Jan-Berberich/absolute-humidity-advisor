@@ -357,7 +357,7 @@
                         badgeHtml = `
                             <div class="flex items-center flex-wrap gap-2">
                                 <span class="bg-rose-500/10 text-rose-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider">Open Window</span>
-                                <span class="text-[12px] text-slate-400 font-medium">${Math.abs(dynamicDiff)} g/m³ less moisture outside</span>
+                                <span class="text-[12px] text-slate-400 font-medium"><span class="text-rose-400 whitespace-nowrap">${Math.abs(dynamicDiff)} g/m³</span> more moisture inside</span>
                             </div>`;
                     } else {
                         cardColorClasses = 'bg-gradient-to-br from-slate-800 to-slate-900 border-emerald-500/40 shadow-lg shadow-emerald-950/20';
@@ -365,7 +365,7 @@
                         badgeHtml = `
                             <div class="flex items-center flex-wrap gap-2">
                                 <span class="bg-emerald-500/10 text-emerald-400 text-xs px-2 py-1 rounded font-bold uppercase tracking-wider">Close Window</span>
-                                <span class="text-[12px] text-slate-400 font-medium">${Math.abs(dynamicDiff)} g/m³ more moisture outside</span>
+                                <span class="text-[12px] text-slate-400 font-medium"><span class="text-emerald-400 whitespace-nowrap">${Math.abs(dynamicDiff)} g/m³</span> less moisture inside</span>
                             </div>`;
                     }
                 }

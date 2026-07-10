@@ -221,8 +221,8 @@ async function onTimer() {
                 lastNotificationStates[dev.id] = state;
                 const title = `Absolute Humidity Advisor: ${dev.name}`;
                 const body = state ?
-                      `OPEN window! ${Math.abs(diff)} g/m³ less moisture outside.`
-                    : `CLOSE window! ${Math.abs(diff)} g/m³ more moisture outside.`;
+                      `OPEN window! ${Math.abs(diff)} g/m³ more moisture inside.`
+                    : `CLOSE window! ${Math.abs(diff)} g/m³ less moisture inside.`;
 
                 await sendPushNotification(title, body);
             }
