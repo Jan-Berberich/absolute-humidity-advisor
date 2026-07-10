@@ -81,7 +81,7 @@ loadDevicesFromFile();
 
 let sensorDataCache = {};
 let tokenCache = { token: null, expiresAt: 0 };
-let lastNotificationDiffs = {}; 
+let lastNotificationStates = {}; 
 
 // Battery notification state tracker (prevents notification spam)
 let lastNotificationBattery = {}; 
@@ -215,12 +215,13 @@ async function onTimer() {
             if (!indoorData.absoluteHumidity || !outdoorData || !outdoorData.absoluteHumidity) continue;
 
             const diff = (indoorData.absoluteHumidity - outdoorData.absoluteHumidity).toFixed(1);
+            const state = diff > 0;
 
-            if (Math.sign(diff) !== Math.sign(lastNotificationDiffs[dev.id]) && Math.abs(diff) >= NTFY_DIFF_THRESHOLD) {
-                lastNotificationDiffs[dev.id] = diff;
+            if (state !== lastNotificationStates[dev.id] && (diff >= NTFY_DIFF_THRESHOLD || diff <= 0.0)) {
+                lastNotificationStates[dev.id] = state;
                 const title = `Absolute Humidity Advisor: ${dev.name}`;
-                const body = diff > 0 
-                    ? `OPEN window! ${Math.abs(diff)} g/m³ less moisture outside.`
+                const body = state ?
+                      `OPEN window! ${Math.abs(diff)} g/m³ less moisture outside.`
                     : `CLOSE window! ${Math.abs(diff)} g/m³ more moisture outside.`;
 
                 await sendPushNotification(title, body);
@@ -255,7 +256,7 @@ app.delete("/api/devices/:id", (req, res) => {
     const { id } = req.params;
     trackedDevices = trackedDevices.filter(d => d.id !== id);
     delete sensorDataCache[id];
-    delete lastNotificationDiffs[id];
+    delete lastNotificationStates[id];
     delete lastNotificationBattery[id];
     saveDevicesToFile(); 
     res.json({ success: true, devices: trackedDevices });
