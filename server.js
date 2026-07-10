@@ -68,8 +68,7 @@ function saveDevicesToFile() {
 
 function logDataToCSV(deviceId, data) {
     if (!data || data.temperature === "N/A" || data.temperature === null) return;
-    const timestamp = new Date().toISOString();
-    const csvLine = `${timestamp},${deviceId},${data.temperature},${data.humidity},${data.absoluteHumidity}\n`;
+    const csvLine = `${data.timestamp.toISOString()},${deviceId},${data.temperature},${data.humidity},${data.absoluteHumidity}\n`;
     try {
         fs.appendFileSync(HISTORY_FILE, csvLine, "utf8");
     } catch (e) {
@@ -140,6 +139,7 @@ function getAbsoluteHumidity(temp, rh) {
 
 async function processDeviceData(deviceId) {
     const statusResult = await makeTuyaRequest("GET", `/v1.0/devices/${deviceId}/status`);
+    const timestamp = new Date();
     let temperature = "N/A";
     let humidity = "N/A";
     let battery = "N/A";
@@ -158,7 +158,7 @@ async function processDeviceData(deviceId) {
     });
 
     const absoluteHumidity = getAbsoluteHumidity(temperature, humidity);
-    return { temperature, humidity, absoluteHumidity, battery, deviceId };
+    return { timestamp, temperature, humidity, absoluteHumidity, battery, deviceId };
 }
 
 async function sendPushNotification(title, message) {
@@ -354,14 +354,10 @@ app.get("/api/history/:id", (req, res) => {
                     count: 1, 
                     time: dateObj.getTime(),
                     firstVal: val,
-                    lastTime: dateObj,
-                    lastVal: val
                 };
             } else {
                 groupedData[groupKey].sum += val;
                 groupedData[groupKey].count += 1;
-                groupedData[groupKey].lastTime = dateObj; 
-                groupedData[groupKey].lastVal = val;
             }
         }
 
@@ -381,9 +377,10 @@ app.get("/api/history/:id", (req, res) => {
             }
         }
         if (aggregate === 'first') {
-            const currentLabel = `${padStart02(now.getHours())}:${padStart02(now.getMinutes())}`;
+            const dataCache = sensorDataCache[id];
+            const currentLabel = `${padStart02(dataCache.timestamp.getHours())}:${padStart02(dataCache.timestamp.getMinutes())}`;
             labels.push(currentLabel);
-            points.push(sensorDataCache[id][metric]);
+            points.push(dataCache[metric]);
         }
 
         res.json({ success: true, data: { labels, points } });
