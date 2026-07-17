@@ -14,7 +14,7 @@ TUYA_SECRET=$yourTuyaSecret
 TUYA_ENDPOINT=$yourTuyaEndpoint
 PORT=$choosePort
 NTFY_TOPIC=$chooseNtfyTopic
-NTFY_DIFF_THRESHOLD=0.3
+NTFY_DIFF_THRESHOLD=0.5
 ```
 
 - Setup `Node.js` and its package manager `npm`.
