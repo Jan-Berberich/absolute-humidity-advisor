@@ -12,6 +12,7 @@ A web UI for Tuya Temperature & Humidity Sensors to advise you about when to ven
 TUYA_CLIENT_ID=$yourTuyaClientId
 TUYA_SECRET=$yourTuyaSecret
 TUYA_ENDPOINT=$yourTuyaEndpoint
+IP=$yourIp
 PORT=$choosePort
 NTFY_TOPIC=$chooseNtfyTopic
 NTFY_DIFF_THRESHOLD=0.5
