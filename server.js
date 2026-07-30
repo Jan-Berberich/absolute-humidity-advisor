@@ -201,12 +201,19 @@ async function onTimer() {
             if (!indoorData.absoluteHumidity || !outdoorData || !outdoorData.absoluteHumidity) continue;
 
             const diff = (indoorData.absoluteHumidity - outdoorData.absoluteHumidity).toFixed(1);
-            const state = diff > 0;
+            const state_open = diff > 0;
 
-            if (state !== lastNotificationStates[dev.id] && (diff >= NTFY_DIFF_THRESHOLD || diff <= 0.0)) {
-                lastNotificationStates[dev.id] = state;
+            if (
+                    state_open !== lastNotificationStates[dev.id]
+                && (
+                        diff >= NTFY_DIFF_THRESHOLD
+                    &&  indoorData.temperature > outdoorData.temperature
+                    || !state_open
+                )
+            ) {
+                lastNotificationStates[dev.id] = state_open;
                 const title = `Absolute Humidity Advisor: ${dev.name}`;
-                const body = state ?
+                const body = state_open ?
                       `OPEN window! ${Math.abs(diff)} g/m³ more moisture inside.`
                     : `CLOSE window! ${Math.abs(diff)} g/m³ less moisture inside.`;
 
